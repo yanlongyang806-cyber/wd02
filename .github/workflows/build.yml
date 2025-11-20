@@ -150,9 +150,11 @@ jobs:
           Write-Host "Attempting build anyway to capture error details..." -ForegroundColor Cyan
         }
         
-        # Build with detailed logging
+        # Build with detailed logging and capture output paths
         $buildOutput = ""
+        $outputPathLog = "output-paths.log"
         try {
+          # Build and capture output
           msbuild $projectPath `
             /p:Configuration=$env:BUILD_CONFIGURATION `
             /p:Platform=$env:BUILD_PLATFORM `
@@ -161,9 +163,23 @@ jobs:
             /nologo `
             /fl `
             /flp:logfile=$buildLog;verbosity=detailed `
-            2>&1 | Tee-Object -Variable buildOutput
-        
+            /p:OutDir=Debug\ `
+            /p:TargetName=GameServer `
+            2>&1 | Tee-Object -Variable buildOutput | Out-File -FilePath $outputPathLog -Encoding UTF8
+          
           $buildExitCode = $LASTEXITCODE
+          
+          # Extract output paths from build log
+          Write-Host "`n=== Extracting Output Paths from Build Log ===" -ForegroundColor Cyan
+          if (Test-Path $buildLog) {
+            $outputPaths = Select-String -Path $buildLog -Pattern "Output.*GameServer\.exe|Linking.*GameServer\.exe|Target.*GameServer\.exe|OutDir|OutputDirectory" -CaseSensitive:$false
+            if ($outputPaths) {
+              Write-Host "Found output path references:" -ForegroundColor Green
+              $outputPaths | Select-Object -First 10 | ForEach-Object {
+                Write-Host "  $($_.Line.Trim())" -ForegroundColor Gray
+              }
+            }
+          }
         } catch {
           Write-Host "Build command failed: $_" -ForegroundColor Red
           $buildExitCode = 1
@@ -221,56 +237,99 @@ jobs:
         # Check for output files - search more thoroughly
         Write-Host "`n=== Checking for Build Outputs ===" -ForegroundColor Cyan
         
+        # First, try to find GameServer.exe specifically (the target name)
+        $targetExe = "GameServer.exe"
+        Write-Host "Looking for target executable: $targetExe" -ForegroundColor Cyan
+        
+        # Common output locations for Visual Studio projects
         $searchPaths = @(
+          "Debug\$targetExe",
+          "Debug\Win32\$targetExe",
+          "Win32\Debug\$targetExe",
+          "Release\$targetExe",
+          "Release\Win32\$targetExe",
+          "Win32\Release\$targetExe",
+          "bin\Debug\$targetExe",
+          "bin\Release\$targetExe",
+          "$targetExe",
+          ".\$targetExe"
+        )
+        
+        # Also search directories
+        $searchDirs = @(
           "Debug",
           "Release",
           "bin",
+          "bin\Debug",
+          "bin\Release",
           "x64\Debug",
           "x64\Release",
           "Win32\Debug",
-          "Win32\Release"
+          "Win32\Release",
+          ".\Debug",
+          ".\Release"
         )
         
         Write-Host "Searching for output files in:" -ForegroundColor Gray
         $searchPaths | ForEach-Object { Write-Host "  - $_" -ForegroundColor Gray }
+        $searchDirs | ForEach-Object { Write-Host "  - $_\" -ForegroundColor Gray }
         Write-Host ""
         
         $foundOutputs = $false
         $allFoundFiles = @()
         
+        # First, check specific paths for the target exe
         foreach ($searchPath in $searchPaths) {
           if (Test-Path $searchPath) {
             $item = Get-Item $searchPath
-            if ($item -is [System.IO.DirectoryInfo]) {
-              $files = Get-ChildItem $searchPath -Recurse -File -ErrorAction SilentlyContinue
-              if ($files) {
-                Write-Host "OK: Found output directory: $searchPath ($($files.Count) files)" -ForegroundColor Green
-                $exeFiles = $files | Where-Object { $_.Extension -match '\.(exe|dll|lib|obj)$' }
-                if ($exeFiles) {
-                  Write-Host "  Executable/Library files:" -ForegroundColor Cyan
-                  $exeFiles | Select-Object -First 10 Name, @{Name="Size(KB)";Expression={[math]::Round($_.Length/1KB,2)}} | Format-Table -AutoSize
-                  $allFoundFiles += $exeFiles
-                  $foundOutputs = $true
+            Write-Host "OK: Found target executable at: $searchPath" -ForegroundColor Green
+            Write-Host "  Size: $([math]::Round($item.Length/1KB,2)) KB" -ForegroundColor Gray
+            $allFoundFiles += $item
+            $foundOutputs = $true
+            break
+          }
+        }
+        
+        # If not found, search directories
+        if (-not $foundOutputs) {
+          foreach ($searchDir in $searchDirs) {
+            if (Test-Path $searchDir) {
+              $item = Get-Item $searchDir
+              if ($item -is [System.IO.DirectoryInfo]) {
+                $files = Get-ChildItem $searchDir -Recurse -File -ErrorAction SilentlyContinue
+                if ($files) {
+                  Write-Host "OK: Found output directory: $searchDir ($($files.Count) files)" -ForegroundColor Green
+                  $exeFiles = $files | Where-Object { $_.Extension -eq '.exe' -or $_.Extension -eq '.dll' -or $_.Extension -eq '.lib' }
+                  if ($exeFiles) {
+                    Write-Host "  Executable/Library files:" -ForegroundColor Cyan
+                    $exeFiles | Select-Object -First 10 Name, @{Name="Size(KB)";Expression={[math]::Round($_.Length/1KB,2)}}, FullName | Format-Table -AutoSize
+                    $allFoundFiles += $exeFiles
+                    $foundOutputs = $true
+                  }
                 }
               }
-            } elseif ($item -is [System.IO.FileInfo]) {
-              Write-Host "OK: Found output file: $searchPath" -ForegroundColor Green
-              $allFoundFiles += $item
-              $foundOutputs = $true
             }
           }
         }
         
-        # Also search for .exe files directly
+        # Also search for .exe files recursively in current directory
         if (-not $foundOutputs) {
-          Write-Host "Searching for .exe files in current directory..." -ForegroundColor Yellow
-          $exeFiles = Get-ChildItem "." -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue
+          Write-Host "Searching for .exe files recursively in current directory..." -ForegroundColor Yellow
+          $exeFiles = Get-ChildItem "." -Recurse -Filter "*.exe" -ErrorAction SilentlyContinue | Where-Object { $_.Name -like "*GameServer*" -or $_.Name -like "*Game*" }
           if ($exeFiles) {
             Write-Host "OK: Found .exe files:" -ForegroundColor Green
             $exeFiles | Select-Object FullName, @{Name="Size(KB)";Expression={[math]::Round($_.Length/1KB,2)}} | Format-Table -AutoSize
             $foundOutputs = $true
             $allFoundFiles += $exeFiles
           }
+        }
+        
+        # Show all directories in current location for debugging
+        if (-not $foundOutputs) {
+          Write-Host "`nCurrent directory structure:" -ForegroundColor Yellow
+          Get-ChildItem "." -Directory | Select-Object Name | Format-Table -AutoSize
+          Write-Host "All files in current directory:" -ForegroundColor Yellow
+          Get-ChildItem "." -File | Select-Object Name, Length | Format-Table -AutoSize
         }
         
         if (-not $foundOutputs) {
@@ -303,13 +362,17 @@ jobs:
       with:
         name: build-outputs
         path: |
+          GameServer.exe
           Debug/
-          Release/
-          bin/
-          x64/Debug/
-          x64/Release/
+          Debug/GameServer.exe
+          Debug/Win32/
           Win32/Debug/
-          Win32/Release/
+          Win32/Debug/GameServer.exe
+          Release/
+          Release/GameServer.exe
+          bin/
+          bin/Debug/
+          bin/Release/
         if-no-files-found: warn
       
     - name: Show why no artifacts
