@@ -422,6 +422,66 @@ jobs:
         Write-Host "`n=== Build Analysis ===" -ForegroundColor Cyan
         
         if (Test-Path $buildLog) {
+          Write-Host "Build log file size: $((Get-Item $buildLog).Length) bytes" -ForegroundColor Gray
+          
+          # Extract key error summary from log
+          Write-Host "`n=== Key Error Summary ===" -ForegroundColor Cyan
+          
+          # MSB3202: Project file not found
+          $msb3202 = Select-String -Path $buildLog -Pattern "MSB3202.*not found" -CaseSensitive:$false
+          if ($msb3202) {
+            Write-Host "CRITICAL: Project file not found errors:" -ForegroundColor Red
+            $msb3202 | Select-Object -First 10 | ForEach-Object {
+              $line = $_.Line -replace '.*MSB3202:\s*', ''
+              Write-Host "  $line" -ForegroundColor Red
+            }
+          }
+          
+          # MSB4019: Imported project not found
+          $msb4019 = Select-String -Path $buildLog -Pattern "MSB4019.*not found" -CaseSensitive:$false
+          if ($msb4019) {
+            Write-Host "CRITICAL: Imported project not found errors:" -ForegroundColor Red
+            $msb4019 | Select-Object -First 10 | ForEach-Object {
+              $line = $_.Line -replace '.*MSB4019:\s*', ''
+              Write-Host "  $line" -ForegroundColor Red
+            }
+          }
+          
+          # C1083: Cannot open include file
+          $c1083 = Select-String -Path $buildLog -Pattern "C1083.*Cannot open include" -CaseSensitive:$false
+          if ($c1083) {
+            Write-Host "ERROR: Cannot open include file:" -ForegroundColor Red
+            $c1083 | Select-Object -First 10 | ForEach-Object {
+              $line = $_.Line -replace '.*C1083:\s*', ''
+              Write-Host "  $line" -ForegroundColor Red
+            }
+          }
+          
+          # LNK2019: Unresolved external symbol
+          $lnk2019 = Select-String -Path $buildLog -Pattern "LNK2019.*unresolved external" -CaseSensitive:$false
+          if ($lnk2019) {
+            Write-Host "ERROR: Unresolved external symbols:" -ForegroundColor Red
+            $lnk2019 | Select-Object -First 10 | ForEach-Object {
+              $line = $_.Line -replace '.*LNK2019:\s*', ''
+              Write-Host "  $line" -ForegroundColor Red
+            }
+          }
+          
+          # Show last 30 lines of log for context
+          Write-Host "`n=== Last 30 lines of build log ===" -ForegroundColor Cyan
+          Get-Content $buildLog -Tail 30 | ForEach-Object {
+            if ($_ -match "error|ERROR|failed|FAILED") {
+              Write-Host $_ -ForegroundColor Red
+            } elseif ($_ -match "warning|WARNING") {
+              Write-Host $_ -ForegroundColor Yellow
+            } elseif ($_ -match "succeeded|SUCCEEDED|success") {
+              Write-Host $_ -ForegroundColor Green
+            } else {
+              Write-Host $_ -ForegroundColor Gray
+            }
+          }
+          
+          Write-Host ""
           $errorCount = 0
           
           # Count errors - check for various error patterns
