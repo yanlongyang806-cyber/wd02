@@ -78,15 +78,17 @@ git add .gitattributes
 
 ### 6. 添加依赖
 
+**重要**：依赖必须已经在仓库内（通过步骤 3 复制），不能使用 `../` 路径！
+
 ```bash
-# 添加 CrossRoads
-git add ../Cryptic/CrossRoads
+# 添加 CrossRoads（现在在仓库内）
+git add CrossRoads
 
-# 添加 Core
-git add ../Cryptic/Core
+# 添加 Core（现在在仓库内）
+git add Core
 
-# 添加 libs（如果存在）
-git add ../libs
+# 添加 libs（现在在仓库内）
+git add libs
 ```
 
 ### 7. 提交
