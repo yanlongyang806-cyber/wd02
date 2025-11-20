@@ -1,12 +1,44 @@
 # 如何添加依赖到仓库
 
-## ⚠️ 重要：必须在正确的目录下执行
+## ⚠️ 重要提示
+
+### 1. Git 不能跟踪仓库外的文件！
+
+**不能使用 `git add ../Cryptic/CrossRoads`**
+
+Git 不允许跟踪仓库根目录之外的文件或目录。如果尝试这样做，会看到错误：
+```
+fatal: ../Cryptic/CrossRoads: '../Cryptic/CrossRoads' is outside repository
+```
+
+### 2. 必须在正确的目录下执行
 
 **必须在 `wd02` 目录下执行 Git 命令，不是在 `wd1` 目录！**
 
-## 正确的操作步骤
+## ✅ 正确的操作步骤
 
-### 1. 切换到 wd02 目录
+### 方法 1: 使用自动化脚本（推荐）
+
+```powershell
+cd I:\wd1\wd02
+
+# 1. 复制依赖到仓库内
+.\setup_dependencies_correct.ps1
+
+# 2. 修复项目文件路径（从 ..\ 改为仓库内路径）
+.\fix_project_paths.ps1
+
+# 3. 添加依赖到 Git
+git add CrossRoads Core libs
+
+# 4. 提交
+git commit -m "Add dependencies to repository"
+git push
+```
+
+### 方法 2: 手动操作
+
+#### 1. 切换到 wd02 目录
 
 ```bash
 cd /i/wd1/wd02
@@ -91,9 +123,11 @@ git lfs track "*.exe"
 git add .gitattributes
 
 # 添加依赖
-git add ../Cryptic/CrossRoads
-git add ../Cryptic/Core
-git add ../libs
+# 注意：现在依赖已经在仓库内，使用相对路径
+git add CrossRoads
+git add Core
+git add libs
+git add .gitattributes  # 如果使用了 Git LFS
 
 # 提交
 git commit -m "Add dependencies with Git LFS"
